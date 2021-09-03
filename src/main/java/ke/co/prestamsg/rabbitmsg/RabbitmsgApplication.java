@@ -41,6 +41,17 @@ import java.util.function.Supplier;
 @SpringBootApplication
 public class RabbitmsgApplication {
 
+	/**
+	 * A Test of multitenancy with RabbitMQ
+	 *
+	 * Additional Requirements
+	 * a) 'Transactional' messaging - Only send transactional messages once the underlying JDBC transaction has commited sucessfully
+	 * b) 'Disable Message Retries'  - For certain consumers e.g B2C disbursement consumer, the broker should not retry messages even if the consumer generates an exception
+	 * c) 'Test Request - Response' - Test synchronous request/response calls
+	 *
+	 * @param args
+	 */
+
 	public static void main(String[] args) {
 		SpringApplication.run(RabbitmsgApplication.class, args);
 	}
