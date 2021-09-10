@@ -16,20 +16,22 @@ import org.springframework.amqp.rabbit.connection.PooledChannelConnectionFactory
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.amqp.support.converter.SimpleMessageConverter;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.Filter;
 import java.util.Date;
@@ -90,6 +92,7 @@ public class RabbitmsgApplication {
 	 * @return
 	 */
 	@Bean
+	@Primary
 	public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(){
 		SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
 		factory.setConnectionFactory(pooledChannelConnectionFactory());
@@ -115,8 +118,14 @@ public class RabbitmsgApplication {
 	 * @return
 	 */
 	@Bean
+	@Primary
 	public MessageConverter jsonMessageConverter() {
 		return new Jackson2JsonMessageConverter();
+	}
+
+	@Bean
+	public SimpleMessageConverter simpleMessageConverter(){
+		return new SimpleMessageConverter();
 	}
 
 	/**
@@ -124,9 +133,15 @@ public class RabbitmsgApplication {
 	 * @return
 	 */
 	@Bean
-	public Queue c2bQueue(){
+	Queue c2bQueue(){
 		return new Queue("prestapay.c2b_payment", false);
 	}
+
+	@Bean
+	Queue helloQueue(){
+		return new Queue("request-reply.hello");
+	}
+
 
 	/**
 	 * RabbitMQ Template for sending messages (May also be used for message retrieval)
@@ -134,9 +149,22 @@ public class RabbitmsgApplication {
 	 * @return
 	 */
 	@Bean
+	@Primary
 	RabbitTemplate rabbitTemplate(Supplier<String> tenantId){
 		RabbitTemplate template =  new RabbitTemplate(pooledChannelConnectionFactory());
 		template.setMessageConverter(jsonMessageConverter());
+		template.setBeforePublishPostProcessors(processor -> {
+			processor.getMessageProperties().setHeader("tenantId", tenantId.get());
+			log.info("RabbitTemplate: Sending message with tenantId: "+tenantId.get()+" : Thread "+Thread.currentThread());
+			return processor;
+		});
+		return template;
+	}
+
+	@Bean
+	RabbitTemplate basicRabbitTemplate(Supplier<String> tenantId){
+		RabbitTemplate template =  new RabbitTemplate(pooledChannelConnectionFactory());
+		template.setMessageConverter(simpleMessageConverter());
 		template.setBeforePublishPostProcessors(processor -> {
 			processor.getMessageProperties().setHeader("tenantId", tenantId.get());
 			log.info("RabbitTemplate: Sending message with tenantId: "+tenantId.get()+" : Thread "+Thread.currentThread());
@@ -175,6 +203,19 @@ public class RabbitmsgApplication {
 		}
 	}
 
+	@RestController
+	@RequestMapping("/api/v1/hello")
+	public class RequestReplyController {
+
+		@Autowired
+		@Qualifier("basicRabbitTemplate")
+		private RabbitTemplate rabbitTemplate;
+
+		@GetMapping(path = "/{name}", produces = MediaType.TEXT_PLAIN_VALUE)
+		public String hello(@PathVariable("name") String name){
+			return rabbitTemplate.convertSendAndReceive("request-reply.hello", name).toString();
+		}
+	}
 	/**
 	 * Sample message sender and receiver service
 	 */
